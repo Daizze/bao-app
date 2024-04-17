@@ -17,26 +17,48 @@ import classNames from 'classnames'
 import { BigNumber } from 'ethers'
 import { formatEther } from 'ethers/lib/utils'
 import Image from 'next/future/image'
-import React, { Fragment, useMemo, useState } from 'react'
+import React, { Fragment, useEffect, useMemo, useState } from 'react'
 import BallastButton from './BallastButton'
 import { isDesktop } from 'react-device-detect'
 
-export const Ballast = () => {
+const Ballast = () => {
 	const [selectedOption, setSelectedOption] = useState('baoUSD')
 	const [swapDirection, setSwapDirection] = useState(false) // false = LUSD->baoUSD | true = baoUSD->LUSD
 	const [inputVal, setInputVal] = useState('')
 	const { account } = useWeb3React()
-	const wethBalance = useTokenBalance(Config.addressMap.WETH)
-	const lusdBalance = useTokenBalance(Config.addressMap.LUSD)
-	const baoUSDBalance = useTokenBalance(Config.addressMap.baoUSD)
-	const baoETHBalance = useTokenBalance(Config.addressMap.baoETH)
-	const ballastInfo = useBallastInfo(selectedOption)
-	const accountBalances = useAccountBalances(selectedOption)
-	const _vaults = useVaults(selectedOption)
 
-	const synth = useMemo(() => {
-		return _vaults?.find(vault => vault.isSynth)
-	}, [_vaults])
+	const [fromToken, setFromToken] = useState('')
+	const [toToken, setToToken] = useState('')
+	const [reserve, setReserve] = useState(null)
+	const [supplyCap, setSupplyCap] = useState(null)
+
+	const [synth, setSynth] = useState(null)
+
+	const fromBalance = useTokenBalance(Config.addressMap[selectedOption])
+	const toBalance = useTokenBalance(Config.addressMap[toToken])
+
+	const ballast = useBallastInfo(selectedOption)
+	const accountBalances = useAccountBalances(selectedOption)
+	const vaults = useVaults(selectedOption)
+
+	useEffect(() => {
+		if (ballast) {
+			setReserve(getDisplayBalance(BigNumber.from(ballast.reserves)))
+			setSupplyCap(getDisplayBalance(BigNumber.from(ballast.supplyCap)))
+		}
+	}, [ballast])
+
+	useEffect(() => {
+		if (selectedOption == 'baoUSD') {
+			setFromToken('LUSD')
+			setToToken('baoUSD')
+		} else if (selectedOption == 'baoETH') {
+			setFromToken('WETH')
+			setToToken('baoETH')
+		}
+
+		setSynth(vaults?.find((vault: { isSynth: any }) => vault.isSynth))
+	}, [selectedOption])
 
 	const aInput = (
 		<>
@@ -46,12 +68,14 @@ export const Ballast = () => {
 						Balance:
 					</Typography>
 					<Typography variant='sm' className='font-bold'>
-						{selectedOption === 'baoUSD' ? `${getDisplayBalance(lusdBalance)}` : `${getDisplayBalance(wethBalance)}`}
-						{selectedOption === 'baoUSD' ? (
-							<Image className='z-10 ml-1 inline-block select-none' src='/images/tokens/LUSD.png' alt='LUSD' width={16} height={16} />
-						) : (
-							<Image className='z-10 ml-1 inline-block select-none' src='/images/tokens/WETH.png' alt='WETH' width={16} height={16} />
-						)}
+						{`${fromBalance}`}
+						<Image
+							className='z-10 ml-1 inline-block select-none'
+							src={`/images/tokens/${fromToken}.png`}
+							alt={fromToken}
+							width={16}
+							height={16}
+						/>
 					</Typography>
 				</div>
 				<div className='float-left mb-1 flex w-full items-center justify-end gap-1'>
@@ -59,27 +83,20 @@ export const Ballast = () => {
 						Reserves:
 					</Typography>
 					<Typography variant='sm' className='font-bold'>
-						{ballastInfo ? getDisplayBalance(ballastInfo.reserves) : <Loader />}
+						{reserve ? reserve : <Loader />}
 					</Typography>
 				</div>
 			</div>
 			<Input
-				onSelectMax={() => setInputVal(formatEther(selectedOption === 'baoUSD' ? lusdBalance : wethBalance).toString())}
+				onSelectMax={() => setInputVal(formatEther(fromBalance).toString())}
 				onChange={(e: { currentTarget: { value: React.SetStateAction<string> } }) => setInputVal(e.currentTarget.value)}
 				// Fee calculation not ideal, fix.
-				value={
-					swapDirection && ballastInfo && inputVal ? (parseFloat(inputVal) - parseFloat(inputVal) * (100 / 10000)).toString() : inputVal
-				}
+				value={swapDirection && ballast && inputVal ? (parseFloat(inputVal) - parseFloat(inputVal) * (100 / 10000)).toString() : inputVal}
 				disabled={swapDirection}
 				label={
 					<div className='flex flex-row items-center rounded-r-3xl bg-baoBlack pl-2 pr-4'>
 						<div className='flex w-6 justify-center'>
-							<Image
-								src={`/images/tokens/${selectedOption === 'baoUSD' ? 'LUSD' : 'WETH'}.png`}
-								height={32}
-								width={32}
-								alt={selectedOption === 'baoUSD' ? 'LUSD' : 'WETH'}
-							/>
+							<Image src={`/images/tokens/${fromToken}.png`} height={32} width={32} alt={fromToken} />
 						</div>
 					</div>
 				}
@@ -96,12 +113,14 @@ export const Ballast = () => {
 						Balance:
 					</Typography>
 					<Typography variant='sm' className='font-bold'>
-						{selectedOption === 'baoUSD' ? `${getDisplayBalance(baoUSDBalance)}` : `${getDisplayBalance(baoETHBalance)}`}
-						{selectedOption === 'baoUSD' ? (
-							<Image className='z-10 ml-1 inline-block select-none' src='/images/tokens/baoUSD.png' alt='baoUSD' width={16} height={16} />
-						) : (
-							<Image className='z-10 ml-1 inline-block select-none' src='/images/tokens/baoETH.png' alt='baoETH' width={16} height={16} />
-						)}
+						{getDisplayBalance(toBalance)}
+						<Image
+							className='z-10 ml-1 inline-block select-none'
+							src={`/images/tokens/${selectedOption}.png`}
+							alt={selectedOption}
+							width={16}
+							height={16}
+						/>
 					</Typography>
 				</div>
 				<div className='float-left mb-1 flex w-full items-center justify-end gap-1'>
@@ -109,20 +128,20 @@ export const Ballast = () => {
 						{isDesktop ? 'Mint' : ''} Limit:
 					</Typography>
 					<Typography variant='sm' className='font-bold'>
-						{ballastInfo ? getDisplayBalance(ballastInfo.supplyCap) : <Loader />}
+						{supplyCap ? supplyCap : <Loader />}
 					</Typography>
 				</div>
 			</div>
 			<div className='m-auto flex w-full rounded-3xl border border-baoWhite border-opacity-20 bg-baoBlack'>
 				<Input
-					onSelectMax={() => setInputVal(formatEther(selectedOption === 'baoUSD' ? baoUSDBalance : baoETHBalance).toString())}
+					onSelectMax={() => setInputVal(formatEther(toBalance).toString())}
 					onChange={(e: { currentTarget: { value: React.SetStateAction<string> } }) => setInputVal(e.currentTarget.value)}
 					// Fee calculation not ideal, fix.
 					value={
-						!swapDirection && ballastInfo && inputVal ? (parseFloat(inputVal) - parseFloat(inputVal) * (100 / 10000)).toString() : inputVal
+						!swapDirection && ballast && inputVal ? (parseFloat(inputVal) - parseFloat(inputVal) * (100 / 10000)).toString() : inputVal
 					}
 					disabled={!swapDirection}
-					placeholder={`${formatEther(selectedOption === 'baoUSD' ? baoUSDBalance : baoETHBalance).toString()}`}
+					placeholder={`${formatEther(toBalance).toString()}`}
 					className='m-auto ml-1 !rounded-3xl !border-0'
 				/>
 				<Listbox value={selectedOption} onChange={setSelectedOption}>
@@ -200,7 +219,7 @@ export const Ballast = () => {
 													<Typography variant='lg' className='text-right align-middle font-bakbak'>
 														{account && accountBalances && synth
 															? getDisplayBalance(
-																	accountBalances.find(balance => balance.address === synth.underlyingAddress).balance,
+																	accountBalances.find((balance: { address: any }) => balance.address === synth.underlyingAddress).balance,
 																	synth.underlyingDecimals,
 																)
 															: '-'}
@@ -239,7 +258,7 @@ export const Ballast = () => {
 													<Typography variant='lg' className='text-right align-middle font-bakbak'>
 														{account && accountBalances && synth
 															? getDisplayBalance(
-																	accountBalances.find(balance => balance.address === synth.underlyingAddress).balance,
+																	accountBalances.find((balance: { address: any }) => balance.address === synth.underlyingAddress).balance,
 																	synth.underlyingDecimals,
 																)
 															: '-'}
@@ -269,7 +288,7 @@ export const Ballast = () => {
 						>
 							<FontAwesomeIcon icon={faSync} size='sm' className='m-auto' />
 							<Typography variant='sm' className='inline font-bold'>
-								Fee: {ballastInfo ? `${(100 / 10000) * 100}%` : <Loader />}
+								Fee: {ballast ? `${(100 / 10000) * 100}%` : <Loader />}
 							</Typography>
 						</span>
 					</div>
@@ -282,11 +301,11 @@ export const Ballast = () => {
 						swapDirection={swapDirection}
 						inputVal={inputVal}
 						maxValues={{
-							buy: selectedOption === 'baoUSD' ? lusdBalance : wethBalance,
-							sell: selectedOption === 'baoUSD' ? baoUSDBalance : baoETHBalance,
+							buy: fromBalance,
+							sell: toBalance,
 						}}
-						supplyCap={ballastInfo ? ballastInfo.supplyCap : BigNumber.from(0)}
-						reserves={ballastInfo ? ballastInfo.reserves : BigNumber.from(0)}
+						supplyCap={supplyCap ? supplyCap : BigNumber.from(0)}
+						reserves={reserve ? reserve : BigNumber.from(0)}
 					/>
 				</Card.Actions>
 			</Card>

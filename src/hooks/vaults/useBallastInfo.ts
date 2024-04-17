@@ -8,8 +8,9 @@ import { providerKey } from '@/utils/index'
 import Multicall from '@/utils/multicall'
 import { useQuery } from '@tanstack/react-query'
 import { useWeb3React } from '@web3-react/core'
-import { BigNumber } from 'ethers'
 import { useEffect } from 'react'
+import { getUnixTime } from 'date-fns'
+import { MongoDBStorage } from '@/utils/storage/MongoDBStorage'
 
 const useBallastInfo = (vaultName: string) => {
 	const bao = useBao()
@@ -39,17 +40,30 @@ const useBallastInfo = (vaultName: string) => {
 					calls: [{ method: 'balanceOf', params: [ballast.address] }],
 				},
 			])
-			const { Ballast: ballastRes, LUSD: lusdRes, WETH: wethRes } = Multicall.parseCallResults(await bao.multicall.call(ballastQueries))
 
-			return {
-				reserves: vaultName === 'baoUSD' ? BigNumber.from(lusdRes[0].values[0]) : BigNumber.from(wethRes[0].values[0]),
-				supplyCap: BigNumber.from(ballastRes[0].values[0]),
-				fees: {
-					buy: BigNumber.from(ballastRes[1].values[0]),
-					sell: BigNumber.from(ballastRes[2].values[0]),
-					denominator: BigNumber.from(ballastRes[3].values[0]),
-				},
+			const storage = MongoDBStorage()
+			const localData = await storage.readRecord('ballast', 'vault', vaultName).then(res => {
+				return res
+			})
+
+			const timestamp = getUnixTime(new Date())
+
+			if (typeof localData == 'object' && localData.hasOwnProperty('timestamp') && localData.timestamp > timestamp - 3600) {
+				return localData
 			}
+
+			const { Ballast: ballastRes, LUSD: lusdRes, WETH: wethRes } = Multicall.parseCallResults(await bao.multicall.call(ballastQueries))
+			const reserves = vaultName === 'baoUSD' ? lusdRes[0].values[0] : wethRes[0].values[0]
+
+			const returnData = {
+				timestamp: timestamp,
+				reserves: reserves,
+				supplyCap: ballastRes[0].values[0],
+			}
+
+			await storage.updateRecord('ballast', returnData, 'vault', vaultName)
+
+			return returnData
 		},
 		{
 			enabled,
@@ -62,7 +76,7 @@ const useBallastInfo = (vaultName: string) => {
 
 	useEffect(() => {
 		_refetch()
-	}, [vaultName])
+	}, [ballast])
 
 	useTxReceiptUpdater(_refetch)
 	useBlockUpdater(_refetch, 10)
